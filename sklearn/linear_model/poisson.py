@@ -9,9 +9,10 @@ import numpy as np
 from scipy import optimize, sparse
 
 from .base import LinearModel, RegressorMixin
+from ..utils.extmath import safe_sparse_dot
 
 
-def _log_likelihood():
+def _log_likelihood(w, X, y, **kwargs):
     '''
     describes the log likelihood of the poisson regression
 
@@ -26,34 +27,60 @@ def _log_likelihood():
     y : ndarray, shape (n_samples,)
         Array of labels.
 
-    alpha : float
-        Regularization parameter. alpha is equal to 1 / C.
-
     Returns
     -------
     out : float
-        Logistic loss.
-    
+        Poisson likelihood
+    '''
+
+    return safe_sparse_dot(safe_sparse_dot(y, X), w)
+
+def _grad_log_likelihood(w, X, y, **kwargs):
+    """
+    Computes the jacobian of the Poisson log_likelihood objective function 
+
+    Parameters
+    ----------
+    w : ndarray, shape (n_features,) or (n_features + 1,)
+        Coefficient vector.
+    X : {array-like, sparse matrix}, shape (n_samples, n_features)
+        Training data.
+    y : ndarray, shape (n_samples,)
+        Array of labels.
+    TODO: alpha : float
+        Regularization parameter. alpha is equal to 1 / C.
+    sample_weight : array-like, shape (n_samples,) optional
+        Array of weights that are assigned to individual samples.
+        If not provided, then each sample is given unit weight.
+    Returns
+    -------
     grad : ndarray, shape (n_features,) or (n_features + 1,)
         Logistic gradient.
-    '''
-    n_samples, n_features = X.shape
-
-    grad = np.empty_like(w)
-    # sum_terms is a list that is as long as the number of samples points
-    sum_terms = np.array(np.dot(X[i], [np.subtract(y[i], np.exp(np.dot(np.transpose(w), X[i]))) for i in range(n_samples)]))
-
-    return np.sum(sum_terms)
-
-def _grad_log_likelihood():
     """
-    Gradient of the log likelihood used for finding the MLE
-    """
+
+    return -safe_sparse_dot(X.T, y - np.exp(safe_sparse_dot(X, w)))
 
 def _hessian_log_likelihood():
     """
-    Hessian used in the optimisation of the MLE
+    Computes the gradient and the Hessian, in the case of a poisson loss.
+
+    Parameters
+    ----------
+    w : ndarray, shape (n_features,) or (n_features + 1,)
+        Coefficient vector.
+    X : {array-like, sparse matrix}, shape (n_samples, n_features)
+        Training data.
+    y : ndarray, shape (n_samples,)
+        Array of labels.
+
+    Returns
+    -------
+    Hs : a matrix Hessian of the log_likelihood for Poisson Regression
     """
+
+    diagonal_weight_matrix = sparse( np.exp(safe_sparse_dot(X, w)))
+
+    return safe_sparse_dot(safe_sparse_dot(X.T, diagonal_weight_matrix), X)
 
 class PoissonRegression(LinearModel, RegressorMixin):
     """    
@@ -98,10 +125,35 @@ class PoissonRegression(LinearModel, RegressorMixin):
         self.verbose = verbose
 
     def fit(self, X, y, exposure=None):
-        """Fit the model according to the given training data.
+        """
+        Fit the model according to the given training data.
         Parameters
         ----------
+        X : {array-like}, shape (n_samples, n_features)
+            Training vector, where n_samples in the number of samples and
+            n_features is the number of features.
+        y : array-like, shape (n_samples,)
+            Target vector relative to X.
+        Returns
+        -------
+        self : returns an instance of self.
         """
+
+        n_samples, n_features = X.shape
+        w0 = np.zeros((n_features, 1))
+
+        func = lambda w: _log_likelihood(w, X, y)
+        f_prime = lambda w: _grad_log_likelihood(w, X, y)
+        hess = lambda w: _hessian_log_likelihood(w, X, y)
+
+        self.w = optimize.minimize(
+                    func,
+                    w0,
+                    f_prime,
+                    hess,
+                    method='Newton-CG')
+                )
+        return self
     
     def predict(self, X):
         """Probability estimates.
