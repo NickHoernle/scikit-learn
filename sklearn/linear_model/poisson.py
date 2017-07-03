@@ -14,7 +14,36 @@ from .base import LinearModel, RegressorMixin
 def _log_likelihood():
     '''
     describes the log likelihood of the poisson regression
+
+    Parameters
+    ----------
+    w : ndarray, shape (n_features,) or (n_features + 1,)
+        Coefficient vector.
+
+    X : {array-like, sparse matrix}, shape (n_samples, n_features)
+        Training data.
+
+    y : ndarray, shape (n_samples,)
+        Array of labels.
+
+    alpha : float
+        Regularization parameter. alpha is equal to 1 / C.
+
+    Returns
+    -------
+    out : float
+        Logistic loss.
+    
+    grad : ndarray, shape (n_features,) or (n_features + 1,)
+        Logistic gradient.
     '''
+    n_samples, n_features = X.shape
+
+    grad = np.empty_like(w)
+    # sum_terms is a list that is as long as the number of samples points
+    sum_terms = np.array(np.dot(X[i], [np.subtract(y[i], np.exp(np.dot(np.transpose(w), X[i]))) for i in range(n_samples)]))
+
+    return np.sum(sum_terms)
 
 def _grad_log_likelihood():
     """
